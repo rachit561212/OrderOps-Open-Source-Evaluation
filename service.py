@@ -9,12 +9,24 @@ def apply_order_event(order: dict, event: dict) -> dict:
     refunded_paise, processed_event_ids.
     """
     out=deepcopy(order)
+    if not isinstance(order, dict) or not isinstance(event, dict):
+        return out
+    event_id=event.get("event_id")
+    kind=event.get("type")
+    known_events={"payment_confirmed", "restaurant_accepted", "restaurant_rejected",
+                  "cancel_requested", "dispatch_started", "order_delivered", "refund_processed"}
+    if not isinstance(event_id, str) or not event_id.strip() or not isinstance(kind, str) or kind not in known_events:
+        return out
+    processed=out.setdefault("processed_event_ids", [])
+    if not isinstance(processed, list):
+        processed=[]
+        out["processed_event_ids"]=processed
+    if event_id in processed:
+        return out
     out.setdefault("payment_status","UNPAID")
     out.setdefault("refund_due_paise",0)
     out.setdefault("refunded_paise",0)
     out.setdefault("processed_event_ids",[])
-    event_id=event.get("event_id")
-    kind=event.get("type")
 
     # Deliberate starter defects: duplicate and invalid refund events are not
     # fully protected, and some transitions need tighter validation.
@@ -40,7 +52,7 @@ def apply_order_event(order: dict, event: dict) -> dict:
         if out["refunded_paise"] >= out.get("refund_due_paise",0):
             out["payment_status"]="REFUNDED"
 
-    out["processed_event_ids"].append(event_id)
+    processed.append(event_id)
     return out
 
 
