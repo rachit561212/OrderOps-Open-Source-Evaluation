@@ -1,24 +1,19 @@
-# optimizations.md - Required submission
+# Optimizations and trade-offs
 
-Document optimizations you considered or implemented. Do not claim a speedup or improvement unless you measured it.
+> Preparation note: The organizer authorized AI assistance for this repository task. No performance improvement is claimed without a benchmark.
 
-## 1. Baseline and objective
-- What needed improvement (correctness, clarity, time complexity, memory, repeated work, maintainability)?
-- What evidence suggested there was room to improve?
+## Objective
 
-## 2. Options considered
-For each option, explain the expected benefit and risk. Include ideas you rejected and why.
+The main need was safer and easier-to-follow event processing. The starter already handled small in-memory lists; there was no measured performance problem to justify a more complex design.
 
-## 3. Changes implemented
-- Change:
-- Reason:
-- Tests used to protect correctness:
-- Measurement method and result (only if measured):
+## Changes made
 
-## 4. Trade-offs
-Explain any trade-off involving simplicity, correctness, performance, or maintainability.
+- Kept the service synchronous and in memory, with direct transition conditions and a small integer-amount helper. This makes the state rules visible without adding a framework.
+- Built order-ID indexes once before reconciliation, then sorted the combined IDs. This avoids rescanning every row for every order and gives repeatable report ordering.
+- Added input checks at the event and reconciliation boundaries so malformed values do not crash the flow or affect totals.
 
-## 5. Further improvements
-What would you do next with more time? Explain the expected benefit and how you would validate it.
+The full visible suite passed after the changes (**218 passed**). No timing or memory benchmark was run, so no speedup is claimed.
 
-If you made no optimization change, state that honestly and compare at least two reasonable options. Correctness and maintainability take priority over unnecessary complexity.
+## Trade-offs and next steps
+
+Keeping the first duplicate reconciliation row is simple and deterministic, but it hides later duplicates because the current report schema cannot describe them. A follow-up could add a duplicate/malformed-record section and test its semantics. For high-volume or concurrent use, persistent event storage and atomic refund updates would be necessary; that is beyond this offline starter.
