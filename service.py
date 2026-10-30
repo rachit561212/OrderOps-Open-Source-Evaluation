@@ -74,21 +74,35 @@ def apply_order_event(order: dict, event: dict) -> dict:
 
 
 def reconcile_orders(internal: list[dict], provider: list[dict]) -> dict:
-    """Compare transaction summaries keyed by order_id."""
-    left={r.get("order_id"):r for r in internal}
-    right={r.get("order_id"):r for r in provider}
-    report={"matched":[],"missing_from_provider":[],"missing_from_internal":[],
-            "amount_mismatches":[],"status_mismatches":[]}
-    for key in sorted(set(left)|set(right),key=lambda x:str(x)):
-        if key not in right:
-            report["missing_from_provider"].append(key)
-        elif key not in left:
-            report["missing_from_internal"].append(key)
+    """Compare internal and provider summaries by order ID."""
+    def index(rows):
+        records = {}
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            order_id = row.get("order_id")
+            if isinstance(order_id, str) and order_id.strip():
+                records.setdefault(order_id, row)
+        return records
+
+    left, right = index(internal), index(provider)
+    report = {name: [] for name in (
+        "matched", "missing_from_provider", "missing_from_internal",
+        "amount_mismatches", "status_mismatches",
+    )}
+    for order_id in sorted(left.keys() | right.keys()):
+        if order_id not in right:
+            report["missing_from_provider"].append(order_id)
+        elif order_id not in left:
+            report["missing_from_internal"].append(order_id)
         else:
-            a,b=left[key],right[key]
-            if a.get("amount_paise") != b.get("amount_paise"):
-                report["amount_mismatches"].append(key)
-            # Deliberate starter defect: mismatched statuses may be called matched.
-            else:
-                report["matched"].append(key)
+            internal_row, provider_row = left[order_id], right[order_id]
+            amount_differs = internal_row.get("amount_paise") != provider_row.get("amount_paise")
+            status_differs = internal_row.get("status") != provider_row.get("status")
+            if amount_differs:
+                report["amount_mismatches"].append(order_id)
+            if status_differs:
+                report["status_mismatches"].append(order_id)
+            if not amount_differs and not status_differs:
+                report["matched"].append(order_id)
     return report
