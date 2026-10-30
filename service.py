@@ -30,26 +30,43 @@ def apply_order_event(order: dict, event: dict) -> dict:
 
     # Deliberate starter defects: duplicate and invalid refund events are not
     # fully protected, and some transitions need tighter validation.
-    if kind=="payment_confirmed":
+    if kind=="payment_confirmed" and out["payment_status"]=="UNPAID":
         out["payment_status"]="PAID"
+        if out.get("status") in ("CANCELLED", "REJECTED"):
+            total=out.get("total_paise")
+            if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+                out["refund_due_paise"]=total
     elif kind=="restaurant_accepted" and out.get("status")=="PLACED":
         out["status"]="ACCEPTED"
     elif kind=="restaurant_rejected" and out.get("status")=="PLACED":
         out["status"]="REJECTED"
         if out["payment_status"]=="PAID":
-            out["refund_due_paise"]=out.get("total_paise",0)
+            total=out.get("total_paise")
+            if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+                out["refund_due_paise"]=total
     elif kind=="cancel_requested" and out.get("status") in ("PLACED","ACCEPTED"):
         out["status"]="CANCELLED"
         if out["payment_status"]=="PAID":
-            out["refund_due_paise"]=out.get("total_paise",0)
+            total=out.get("total_paise")
+            if isinstance(total, int) and not isinstance(total, bool) and total >= 0:
+                out["refund_due_paise"]=total
     elif kind=="dispatch_started" and out.get("status")=="ACCEPTED":
         out["status"]="OUT_FOR_DELIVERY"
     elif kind=="order_delivered" and out.get("status")=="OUT_FOR_DELIVERY":
         out["status"]="DELIVERED"
     elif kind=="refund_processed":
-        # Bug to find: validate eligibility, positive amount and maximum refund.
-        out["refunded_paise"] += event.get("amount_paise",0)
-        if out["refunded_paise"] >= out.get("refund_due_paise",0):
+        amount=event.get("amount_paise")
+        due=out.get("refund_due_paise")
+        refunded=out.get("refunded_paise")
+        if (out.get("status") not in ("CANCELLED", "REJECTED")
+                or out["payment_status"] != "PAID"
+                or not isinstance(due, int) or isinstance(due, bool) or due <= 0
+                or not isinstance(refunded, int) or isinstance(refunded, bool) or refunded < 0
+                or not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0
+                or amount > due - refunded):
+            return out
+        out["refunded_paise"] += amount
+        if out["refunded_paise"] == due:
             out["payment_status"]="REFUNDED"
 
     processed.append(event_id)
