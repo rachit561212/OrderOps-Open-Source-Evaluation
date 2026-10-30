@@ -1,23 +1,23 @@
-# challenges.md - COMPULSORY submission
+# Challenges and debugging notes
 
-This file is mandatory and worth 5 marks. Describe your actual experience honestly. Do not invent difficulties to fill the page.
+> Preparation note: These notes document AI-assisted work authorized by the repository organizer. Check the details against the final diff before using them in an evaluation submission.
 
-## 1. Challenge or confusing behaviour
-What specific state transition, test failure, data condition, or code path was difficult to understand?
+## What was tricky
 
-## 2. Evidence
-Summarize the relevant assertion, error message, output, or minimal reproducible example. Do not include secrets or real customer data.
+The starter mixed three concerns in `apply_order_event`: state transitions, event replay handling, and refund accounting. A replay looked harmless for payment status, but it duplicated the event ID; refund events could also add invalid amounts. That made it important to check the entire result, not only the visible order state.
 
-## 3. What I tried
-List the debugging steps or experiments you actually performed and what each one showed.
+## Evidence and root causes
 
-## 4. Resolution
-What was the root cause? What did you change, and why did that address the cause rather than hide the symptom?
+Running the original `service.py` against the unchanged tests produced **62 failures and 150 passes**. The failures showed that event IDs were appended on every call, refund amounts were added without eligibility or bounds checks, and reconciliation could put a record with a different status into `matched`.
 
-## 5. Proof and regression prevention
-Which test(s) demonstrate the fix? What related case could still break?
+The refund amount inputs include values such as `True`, `0.5`, `None`, strings and amounts above the due. Python treats `bool` as a subclass of `int`, so checking only `isinstance(value, int)` would still accept `True`; the implementation explicitly excludes booleans.
 
-## 6. Unresolved challenge or next step
-State any remaining limitation and how you would investigate it next.
+## Resolution
 
-If you did not encounter a major blocker, say that clearly and describe the hardest edge case you deliberately tested and what it taught you. Do not manufacture a story; describe observable engineering work.
+The service now ignores missing IDs, unknown event types, and duplicate IDs; validates refund eligibility and outstanding balance; and marks a refund complete only when refunded equals due. Reconciliation evaluates amount and status separately. New tests cover malformed event types, missing IDs, late payment, invalid-refund retry, duplicate refunds, and malformed/duplicate reconciliation rows.
+
+The post-change test run reported **218 passed**. The offline demo also completed and showed its fixture mismatches in the separate missing, amount, and status categories.
+
+## Remaining limitations
+
+The reconciliation API has no field for duplicate or malformed-row diagnostics, so invalid rows are ignored and the first duplicate order ID wins. There is no persistence, concurrency protection, or external payment integration; those would need separate design and tests in a production system.

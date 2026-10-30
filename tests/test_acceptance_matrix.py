@@ -181,3 +181,55 @@ def test_input_order_is_not_mutated(kind):
     before = dict(order)
     apply_order_event(order, ev("E", kind))
     assert order == before
+
+
+def test_late_payment_after_cancellation_sets_refund_due():
+    order = new_order("O", 2500, "CANCELLED")
+    result = apply_order_event(order, ev("PAY", "payment_confirmed"))
+    assert result["payment_status"] == "PAID"
+    assert result["refund_due_paise"] == 2500
+
+
+def test_missing_event_id_is_ignored():
+    order = new_order("O", 2500)
+    result = apply_order_event(order, {"type": "payment_confirmed"})
+    assert result == order
+
+
+def test_unhashable_event_type_is_ignored():
+    order = new_order("O", 2500)
+    result = apply_order_event(order, ev("E", ["payment_confirmed"]))
+    assert result == order
+
+
+def test_invalid_refund_does_not_consume_event_id():
+    order = new_order("O", 1000, "CANCELLED")
+    order.update(payment_status="PAID", refund_due_paise=1000)
+    invalid = apply_order_event(order, ev("R", "refund_processed", amount_paise=-1))
+    corrected = apply_order_event(invalid, ev("R", "refund_processed", amount_paise=1000))
+    assert corrected["refunded_paise"] == 1000
+    assert corrected["payment_status"] == "REFUNDED"
+
+
+def test_duplicate_refund_event_is_applied_only_once():
+    order = new_order("O", 1000, "CANCELLED")
+    order.update(payment_status="PAID", refund_due_paise=1000)
+    refund = ev("R", "refund_processed", amount_paise=400)
+    once = apply_order_event(order, refund)
+    replayed = apply_order_event(once, refund)
+    assert replayed["refunded_paise"] == 400
+    assert replayed["processed_event_ids"] == ["R"]
+
+
+def test_reconciliation_reports_both_mismatch_types_and_ignores_bad_rows():
+    report = reconcile_orders(
+        [None, {"order_id": "O", "amount_paise": 100, "status": "PLACED"}],
+        [
+            {"order_id": "O", "amount_paise": 90, "status": "CANCELLED"},
+            {"order_id": "O", "amount_paise": 1, "status": "DELIVERED"},
+            {"order_id": None, "amount_paise": 0, "status": "UNKNOWN"},
+        ],
+    )
+    assert report["amount_mismatches"] == ["O"]
+    assert report["status_mismatches"] == ["O"]
+    assert report["matched"] == []
